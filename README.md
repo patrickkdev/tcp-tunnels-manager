@@ -44,7 +44,7 @@ The project follows a clean architecture pattern, separating concerns into disti
 
 2. **Set up environment variables:**
 
-   Create a `.env` file in the project root with your database connection string and other necessary configurations. Refer to `.env.example` (if available) for required variables.
+   Create a `.env` file in the project root with your database connection string and other necessary configurations. Refer to `configs/init.go` for required variables.
 
 3. **Run the application:**
    ```bash
