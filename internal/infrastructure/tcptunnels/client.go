@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/patrickkdev/tcptunnelsmanager/internal/domain"
 )
@@ -28,6 +29,8 @@ type Tunnel struct {
 	wg sync.WaitGroup
 
 	Events chan Event
+
+	MaxRetryBackoff time.Duration
 }
 
 func New(row domain.TunnelRow) *Tunnel {
@@ -38,6 +41,8 @@ func New(row domain.TunnelRow) *Tunnel {
 		ctx:       ctx,
 		cancel:    cancel,
 		Events:    make(chan Event, 32),
+
+		MaxRetryBackoff: 30 * time.Second,
 	}
 }
 
@@ -50,6 +55,8 @@ func (t *Tunnel) Start() error {
 
 func (t *Tunnel) run() {
 	defer t.wg.Done()
+
+	backoff := time.Second
 
 	for {
 		select {
@@ -89,14 +96,21 @@ func (t *Tunnel) run() {
 		select {
 		case <-t.ctx.Done():
 			return
-		default:
+		case <-time.After(backoff):
+		}
+
+		// Exponential backoff up to 30 seconds
+		if backoff < t.MaxRetryBackoff {
+			backoff *= 2
+		} else {
+			backoff = t.MaxRetryBackoff
 		}
 
 		if err != nil {
 			t.emit(domain.LogLevelError,
 				fmt.Sprintf("socat crashed: %v, restarting", err))
 		} else {
-			t.emit(domain.LogLevelWarning,
+			t.emit(domain.LogLevelError,
 				"socat exited unexpectedly, restarting")
 		}
 	}

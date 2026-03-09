@@ -156,11 +156,15 @@ func (m *Manager) consumeTunnelEvents(ctx context.Context, t *tcptunnels.Tunnel)
 }
 
 func (m *Manager) logTunnel(ctx context.Context, tunnelID int, level domain.LogLevel, message string) {
-	log.Printf("%d - %s: %s", tunnelID, level, message)
-
 	logEntry, err := domain.NewTunnelLog(tunnelID, level, message)
 	if err != nil {
 		log.Println("failed creating tunnel log:", err)
+		return
+	}
+
+	log.Println(logEntry.String())
+
+	if logEntry.Level == domain.LogLevelInfo { // Don't store info logs
 		return
 	}
 

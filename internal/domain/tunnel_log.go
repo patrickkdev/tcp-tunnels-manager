@@ -37,3 +37,7 @@ func NewTunnelLog(tunnelID int, level LogLevel, message string) (TunnelLog, erro
 		Message:  message,
 	}, nil
 }
+
+func (l TunnelLog) String() string {
+	return fmt.Sprintf("%d - %s: %s", l.TunnelID, l.Level, l.Message)
+}
