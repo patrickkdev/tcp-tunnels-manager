@@ -42,7 +42,7 @@ func NewTunnel(row domain.TunnelRow) *Tunnel {
 		cancel:    cancel,
 		Events:    make(chan Event, 32),
 
-		MaxRetryBackoff: 30 * time.Second,
+		MaxRetryBackoff: 1 * time.Minute,
 	}
 }
 
@@ -99,7 +99,6 @@ func (t *Tunnel) run() {
 		case <-time.After(backoff):
 		}
 
-		// Exponential backoff up to 30 seconds
 		if backoff < t.MaxRetryBackoff {
 			backoff *= 2
 		} else {
