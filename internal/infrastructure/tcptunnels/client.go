@@ -60,6 +60,8 @@ func (t *Tunnel) run() {
 
 		cmd := exec.Command(
 			"socat",
+			"-d",
+			"-d",
 			fmt.Sprintf("TCP-LISTEN:%d,fork,reuseaddr", t.ListenPort),
 			fmt.Sprintf("TCP:%s:%d", t.TargetHost, t.TargetPort),
 		)

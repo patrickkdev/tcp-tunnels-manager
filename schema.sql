@@ -15,3 +15,6 @@ CREATE TABLE IF NOT EXISTS tcp_tunnel_logs (
   message TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Test row for tcp_tunnels
+INSERT INTO tcp_tunnels (listen_port, target_host, target_port, enabled) VALUES (52000, 'httpforever.com', 80, TRUE);

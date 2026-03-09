@@ -6,4 +6,6 @@ type TunnelRow struct {
 	TargetHost string
 	TargetPort int
 	Enabled    bool
+	CreatedAt  string
+	UpdatedAt  string
 }
