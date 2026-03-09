@@ -73,7 +73,7 @@ pacman -S socat
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/patrickkdev/tcp-tunnels.git
+git clone https://github.com/patrickkdev/tcp-tunnels-manager.git
 cd tcp-tunnels
 ```
 
