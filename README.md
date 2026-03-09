@@ -48,7 +48,7 @@ The project follows a clean architecture style layout:
 
 - Go
 - MySQL
-- `socat`
+- socat
 
 ### Installing socat
 
