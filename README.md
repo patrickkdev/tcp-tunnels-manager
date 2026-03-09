@@ -1,11 +1,19 @@
 # TCP Tunnels Manager
 
-This project implements a TCP tunnels manager in Go. It allows for the creation, management, and monitoring of TCP tunnels, facilitating secure and efficient communication between different network endpoints.
+This project implements a TCP tunnels manager in Go. It allows for the creation, management, and monitoring of TCP tunnels, facilitating communication between different network endpoints.
+
+## Why MySQL?
+
+This project uses a MySQL database because it was a requirement from a client who requested that tunnel configurations and logs be persisted in a database.
+
+The original intention for a project like this would typically be a simpler CLI-driven configuration or file-based approach. However, the client preferred storing configuration and activity logs in database tables for integration with their existing systems and workflows.
+
+As a result, MySQL is used as the control and persistence layer for tunnel configurations and logs.
 
 ## Features
 
 - **Tunnel Management:** Create, update, and delete TCP tunnel configurations.
-- **Database Integration:** Stores tunnel configurations and logs in a PostgreSQL database.
+- **Database Integration:** Stores tunnel configurations and logs in a MySQL database.
 - **Tunnel Logging:** Records connection events and data transfer for each tunnel.
 - **Client-Side Tunneling:** Provides functionality for establishing and managing TCP tunnel clients.
 
@@ -23,30 +31,25 @@ The project follows a clean architecture pattern, separating concerns into disti
 
 ### Prerequisites
 
-- Go (version 1.18 or higher)
-- PostgreSQL database
+- Go
+- MySQL Database
 
 ### Setup
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/Sinaionline/tcp-tunnels.git
-    cd tcp-tunnels
-    ```
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/patrickkdev/tcp-tunnels.git
+   cd tcp-tunnels
+   ```
 
-2.  **Set up environment variables:**
-    Create a `.env` file in the project root with your database connection string and other necessary configurations. Refer to `.env.example` (if available) for required variables.
+2. **Set up environment variables:**
 
-3.  **Initialize the database schema:**
-    Run the SQL script to create the necessary tables:
-    ```bash
-    psql -U your_user -d your_database -f schema.sql
-    ```
+   Create a `.env` file in the project root with your database connection string and other necessary configurations. Refer to `.env.example` (if available) for required variables.
 
-4.  **Run the application:**
-    ```bash
-    go run cmd/app/main.go
-    ```
+3. **Run the application:**
+   ```bash
+   go run cmd/app/main.go
+   ```
 
 ## Database Schema
 
@@ -55,11 +58,6 @@ The `schema.sql` file defines the database tables for `tunnel_rows` and `tunnel_
 - `tunnel_rows`: Stores the configuration for each TCP tunnel.
 - `tunnel_logs`: Records events and statistics related to tunnel activity.
 
-## Dependencies
-
-- `github.com/lib/pq`: PostgreSQL driver for Go.
-- `github.com/joho/godotenv`: For loading environment variables from `.env` file.
-
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests or open issues.
+Contributions are welcome. Feel free to submit pull requests or open issues.

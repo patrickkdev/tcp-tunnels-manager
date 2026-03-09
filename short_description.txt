@@ -1,1 +1,1 @@
-A Go-based TCP tunnels manager that provides functionality for creating, managing, and monitoring TCP tunnels with PostgreSQL database integration for configuration and logging.
+A TCP tunnels manager that uses `socat` to provide functionality for creating, managing, and monitoring TCP tunnels with MySQL database integration for configuration and logging.
