@@ -7,18 +7,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/patrickkdev/tcptunnel/internal/domain"
 	"github.com/patrickkdev/tcptunnel/internal/infrastructure/db"
 	"github.com/patrickkdev/tcptunnel/internal/infrastructure/tcptunnels"
 )
 
 type Manager struct {
-	tunnels        sync.Map // map[int]*tcptunnels.Tunnel
-	tunnelRowsRepo db.TunnelRowsRepo
+	tunnels        sync.Map
+	tunnelRowsRepo *db.TunnelRowsRepo
+	tunnelLogsRepo *db.TunnelLogsRepo
 }
 
-func NewManager(repo db.TunnelRowsRepo) *Manager {
+func NewManager(tunnelRowsRepo *db.TunnelRowsRepo, tunnelLogsRepo *db.TunnelLogsRepo) *Manager {
 	return &Manager{
-		tunnelRowsRepo: repo,
+		tunnelRowsRepo: tunnelRowsRepo,
+		tunnelLogsRepo: tunnelLogsRepo,
 	}
 }
 
@@ -44,65 +47,75 @@ func (m *Manager) Run(ctx context.Context, interval time.Duration) {
 				continue
 			}
 
-			m.Reconcile(rows)
+			m.reconcile(ctx, rows)
 		}
 	}
 }
 
-func (m *Manager) Reconcile(rows []db.TunnelRow) {
-	// Start or update tunnels
-	for port, row := range rows {
+func (m *Manager) reconcile(ctx context.Context, rows []domain.TunnelRow) {
+	desired := buildDesired(rows)
 
-		listen := fmt.Sprintf(":%d", row.ListenPort)
-		target := fmt.Sprintf("%s:%d", row.TargetHost, row.TargetPort)
-
+	// CREATE or UPDATE
+	for port, row := range desired {
 		val, exists := m.tunnels.Load(port)
 
+		// CREATE
 		if !exists {
-
-			t := tcptunnels.New(listen, target)
+			t := tcptunnels.New(row)
 
 			if err := t.Start(); err != nil {
-				log.Printf("tunnel start failed port=%d err=%v", port, err)
+				msg := fmt.Sprintf("tunnel start failed port=%d err=%v", port, err)
+				m.logTunnel(ctx, row.ID, domain.LogLevelError, msg)
 				continue
 			}
+
+			go m.consumeTunnelEvents(ctx, t)
 
 			m.tunnels.Store(port, t)
 
-			log.Printf("tunnel started %s -> %s", listen, target)
+			msg := fmt.Sprintf(
+				"tunnel started %d -> %s:%d",
+				port,
+				row.TargetHost,
+				row.TargetPort,
+			)
 
+			m.logTunnel(ctx, row.ID, domain.LogLevelInfo, msg)
 			continue
 		}
 
+		// UPDATE
 		t := val.(*tcptunnels.Tunnel)
 
-		// restart if target changed
-		if t.TargetAddr != target {
+		if t.TargetHost != row.TargetHost || t.TargetPort != row.TargetPort {
 
-			log.Printf("tunnel target changed restarting port=%d", port)
+			msg := fmt.Sprintf("tunnel restarting due to config change port=%d", port)
+			m.logTunnel(ctx, row.ID, domain.LogLevelWarning, msg)
 
 			t.Stop()
 
-			newTunnel := tcptunnels.New(listen, target)
+			newTunnel := tcptunnels.New(row)
 
 			if err := newTunnel.Start(); err != nil {
-				log.Printf("tunnel restart failed port=%d err=%v", port, err)
+				msg := fmt.Sprintf("tunnel restart failed port=%d err=%v", port, err)
+				m.logTunnel(ctx, row.ID, domain.LogLevelError, msg)
 				continue
 			}
+
+			go m.consumeTunnelEvents(ctx, newTunnel)
 
 			m.tunnels.Store(port, newTunnel)
 		}
 	}
 
-	// Stop removed tunnels
+	// DELETE
 	m.tunnels.Range(func(key, value any) bool {
-
 		port := key.(int)
 		tunnel := value.(*tcptunnels.Tunnel)
 
-		if row, ok := rows[port]; !ok || !row.Enabled {
-
-			log.Printf("tunnel stopping port=%d", port)
+		if _, exists := desired[port]; !exists {
+			msg := fmt.Sprintf("tunnel stopped port=%d", port)
+			m.logTunnel(ctx, tunnel.ID, domain.LogLevelInfo, msg)
 
 			tunnel.Stop()
 
@@ -113,10 +126,51 @@ func (m *Manager) Reconcile(rows []db.TunnelRow) {
 	})
 }
 
+func buildDesired(rows []domain.TunnelRow) map[int]domain.TunnelRow {
+	desired := make(map[int]domain.TunnelRow)
+
+	for _, r := range rows {
+		if r.Enabled {
+			desired[r.ListenPort] = r
+		}
+	}
+
+	return desired
+}
+
+func (m *Manager) consumeTunnelEvents(ctx context.Context, t *tcptunnels.Tunnel) {
+	for {
+		select {
+
+		case <-ctx.Done():
+			return
+
+		case e, ok := <-t.Events:
+			if !ok {
+				return
+			}
+
+			m.logTunnel(ctx, t.ID, e.Level, fmt.Sprintf("tunnel event: %s", e.Message))
+		}
+	}
+}
+
+func (m *Manager) logTunnel(ctx context.Context, tunnelID int, level domain.LogLevel, message string) {
+	log.Printf("%d - %s: %s", tunnelID, level, message)
+
+	logEntry, err := domain.NewTunnelLog(tunnelID, level, message)
+	if err != nil {
+		log.Println("failed creating tunnel log:", err)
+		return
+	}
+
+	if err := m.tunnelLogsRepo.AddLog(ctx, logEntry); err != nil {
+		log.Println("failed storing tunnel log:", err)
+	}
+}
+
 func (m *Manager) shutdown() {
-
 	m.tunnels.Range(func(key, value any) bool {
-
 		port := key.(int)
 		tunnel := value.(*tcptunnels.Tunnel)
 

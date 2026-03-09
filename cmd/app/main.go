@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"log"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/patrickkdev/tcptunnel/configs"
 	"github.com/patrickkdev/tcptunnel/internal/application"
 	"github.com/patrickkdev/tcptunnel/internal/infrastructure/db"
 )
@@ -19,8 +21,17 @@ func main() {
 
 	defer stop()
 
-	repo := db.NewTunnelRowsRepo()
+	dbConn, err := db.Connect(configs.DBConfig)
+	if err != nil {
+		panic(err)
+	} else {
+		log.Println("connected to database")
+	}
+	defer dbConn.Close()
 
-	manager := application.NewManager(repo)
-	manager.Run(ctx, 5*time.Second)
+	tunnelRowsRepo := db.NewTunnelRowsRepo(dbConn)
+	tunnelLogsRepo := db.NewTunnelLogsRepo(dbConn)
+
+	manager := application.NewManager(tunnelRowsRepo, tunnelLogsRepo)
+	manager.Run(ctx, time.Duration(configs.ReconcileIntervalSeconds)*time.Second)
 }

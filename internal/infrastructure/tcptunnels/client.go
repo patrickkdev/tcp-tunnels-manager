@@ -1,110 +1,136 @@
 package tcptunnels
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"io"
-	"net"
+	"os/exec"
 	"sync"
+
+	"github.com/patrickkdev/tcptunnel/internal/domain"
 )
 
-type Tunnel struct {
-	ListenAddr string
-	TargetAddr string
-
-	listener net.Listener
-	ctx      context.Context
-	cancel   context.CancelFunc
-
-	wg sync.WaitGroup
+type Event struct {
+	TunnelID int
+	Level    domain.LogLevel
+	Message  string
 }
 
-func New(listen, target string) *Tunnel {
+type Tunnel struct {
+	domain.TunnelRow
+
+	cmd *exec.Cmd
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	wg sync.WaitGroup
+
+	Events chan Event
+}
+
+func New(row domain.TunnelRow) *Tunnel {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Tunnel{
-		ListenAddr: listen,
-		TargetAddr: target,
-		ctx:        ctx,
-		cancel:     cancel,
+		TunnelRow: row,
+		ctx:       ctx,
+		cancel:    cancel,
+		Events:    make(chan Event, 32),
 	}
 }
 
 func (t *Tunnel) Start() error {
-	l, err := net.Listen("tcp", t.ListenAddr)
-	if err != nil {
-		return err
-	}
-
-	t.listener = l
-
 	t.wg.Add(1)
-	go t.acceptLoop()
+	go t.run()
 
 	return nil
 }
 
-func (t *Tunnel) acceptLoop() {
+func (t *Tunnel) run() {
 	defer t.wg.Done()
 
 	for {
-		conn, err := t.listener.Accept()
+		select {
+		case <-t.ctx.Done():
+			return
+		default:
+		}
+
+		cmd := exec.Command(
+			"socat",
+			fmt.Sprintf("TCP-LISTEN:%d,fork,reuseaddr", t.ListenPort),
+			fmt.Sprintf("TCP:%s:%d", t.TargetHost, t.TargetPort),
+		)
+
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
+
+		if err := cmd.Start(); err != nil {
+			t.emit(domain.LogLevelError, fmt.Sprintf("failed to start socat: %v", err))
+			return
+		}
+
+		t.cmd = cmd
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go t.pipeLogs(stdout, &wg)
+		go t.pipeLogs(stderr, &wg)
+
+		err := cmd.Wait()
+
+		wg.Wait()
+
+		select {
+		case <-t.ctx.Done():
+			return
+		default:
+		}
+
 		if err != nil {
-			select {
-			case <-t.ctx.Done():
-				return
-			default:
-				time.Sleep(50 * time.Millisecond)
-				continue
-			}
+			t.emit(domain.LogLevelError,
+				fmt.Sprintf("socat crashed: %v, restarting", err))
+		} else {
+			t.emit(domain.LogLevelWarning,
+				"socat exited unexpectedly, restarting")
 		}
-
-		t.wg.Add(1)
-		go t.handle(conn)
 	}
 }
 
-func (t *Tunnel) handle(src net.Conn) {
-	defer t.wg.Done()
-	defer src.Close()
+func (t *Tunnel) pipeLogs(pipe io.ReadCloser, wg *sync.WaitGroup) {
+	defer wg.Done()
 
-	dialer := &net.Dialer{
-		Timeout: 10 * time.Second,
+	scanner := bufio.NewScanner(pipe)
+
+	for scanner.Scan() {
+		t.emit(domain.LogLevelInfo, scanner.Text())
 	}
-
-	src, err := dialer.DialContext(t.ctx, "tcp", t.TargetAddr)
-	if err != nil {
-		return
-	}
-	defer src.Close()
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		io.Copy(dst, src)
-		if tcp, ok := dst.(*net.TCPConn); ok {
-			tcp.CloseWrite()
-		}
-		wg.Done()
-	}()
-
-	go func() {
-		io.Copy(src, dst)
-		if tcp, ok := src.(*net.TCPConn); ok {
-			tcp.CloseWrite()
-		}
-		wg.Done()
-	}()
-
-	wg.Wait()
 }
 
-func (t *Tunnel) Stop() {
+func (t *Tunnel) emit(level domain.LogLevel, msg string) {
+	select {
+	case t.Events <- Event{
+		TunnelID: t.ID,
+		Level:    level,
+		Message:  msg,
+	}:
+	default:
+	}
+}
+
+func (t *Tunnel) Stop() error {
 	t.cancel()
 
-	if t.listener != nil {
-		t.listener.Close()
+	if t.cmd != nil && t.cmd.Process != nil {
+		_ = t.cmd.Process.Kill()
 	}
 
 	t.wg.Wait()
+
+	close(t.Events)
+
+	return nil
 }
